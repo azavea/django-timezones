@@ -1,16 +1,15 @@
-VERSION = (0, 2, 0, "f") # following PEP 386
-DEV_N = None
+VERSION = (0, 2, 0, "dev", 3)
 
 
 def get_version():
-    version = "%s.%s" % (VERSION[0], VERSION[1])
-    if VERSION[2]:
-        version = "%s.%s" % (version, VERSION[2])
-    if VERSION[3] != "f":
-        version = "%s%s%s" % (version, VERSION[3], VERSION[4])
-        if DEV_N:
-            version = "%s.dev%s" % (version, DEV_N)
-    return version
+    if VERSION[3] == "final":
+        return "%s.%s.%s" % (VERSION[0], VERSION[1], VERSION[2])
+    elif VERSION[3] == "dev":
+        if VERSION[2] == 0:
+            return "%s.%s.%s%s" % (VERSION[0], VERSION[1], VERSION[3], VERSION[4])
+        return "%s.%s.%s.%s%s" % (VERSION[0], VERSION[1], VERSION[2], VERSION[3], VERSION[4])
+    else:
+        return "%s.%s.%s%s" % (VERSION[0], VERSION[1], VERSION[2], VERSION[3])
 
 
 __version__ = get_version()

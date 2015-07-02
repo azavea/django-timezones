@@ -1,10 +1,8 @@
 from django.conf import settings
 from django.db import models
-from django.db.models import signals
 from django.utils.encoding import smart_unicode, smart_str
-
-import pytz
-
+from django.db.models import signals
+import pytz, types
 from timezones import forms, zones
 from timezones.utils import coerce_timezone_value, validate_timezone_max_length
 
@@ -87,71 +85,42 @@ class LocalizedDateTimeField(models.DateTimeField):
         """
         Returns field's value prepared for saving into a database.
         """
-        ## convert to settings.TIME_ZONE
+
         if value is not None:
-            if value.tzinfo is None:
-                value = default_tz.localize(value)
-            else:
+            if value.tzinfo is not None:
+                ## convert to settings.TIME_ZONE
                 value = value.astimezone(default_tz)
+                
+            value = value.replace(tzinfo=None)
         return super(LocalizedDateTimeField, self).get_db_prep_save(value, connection=connection)
     
+    @classmethod
+    def _add_tz(cls, value):
+        if value.tzinfo is not None:
+            ## convert to settings.TIME_ZONE
+            value = value.astimezone(default_tz)
+        value = value.replace(tzinfo=None)
+        return value
+
     def get_db_prep_lookup(self, lookup_type, value, connection=None, prepared=None):
         """
         Returns field's value prepared for database lookup.
         """
-        ## convert to settings.TIME_ZONE
-        if value.tzinfo is None:
-            value = default_tz.localize(value)
+        if isinstance(value, types.ListType):
+            for i, val in enumerate(value):
+                value[i] = self._add_tz(val)
         else:
-            value = value.astimezone(default_tz)
+            value = self._add_tz(value)
+
         return super(LocalizedDateTimeField, self).get_db_prep_lookup(lookup_type, value, connection=connection, prepared=prepared)
-
-
-def prep_localized_datetime(sender, **kwargs):
-    for field in sender._meta.fields:
-        if not isinstance(field, LocalizedDateTimeField) or field.timezone is None:
-            continue
-        dt_field_name = "_datetimezone_%s" % field.attname
-        def get_dtz_field(instance):
-            return getattr(instance, dt_field_name)
-        def set_dtz_field(instance, dt):
-            if dt.tzinfo is None:
-                dt = default_tz.localize(dt)
-            time_zone = field.timezone
-            if isinstance(field.timezone, basestring):
-                tz_name = instance._default_manager.filter(
-                    pk=model_instance._get_pk_val()
-                ).values_list(field.timezone)[0][0]
-                try:
-                    time_zone = pytz.timezone(tz_name)
-                except:
-                    time_zone = default_tz
-                if time_zone is None:
-                    # lookup failed
-                    time_zone = default_tz
-                    #raise pytz.UnknownTimeZoneError(
-                    #    "Time zone %r from relation %r was not found"
-                    #    % (tz_name, field.timezone)
-                    #)
-            elif callable(time_zone):
-                tz_name = time_zone()
-                if isinstance(tz_name, basestring):
-                    try:
-                        time_zone = pytz.timezone(tz_name)
-                    except:
-                        time_zone = default_tz
-                else:
-                    time_zone = tz_name
-                if time_zone is None:
-                    # lookup failed
-                    time_zone = default_tz
-                    #raise pytz.UnknownTimeZoneError(
-                    #    "Time zone %r from callable %r was not found"
-                    #    % (tz_name, field.timezone)
-                    #)
-            setattr(instance, dt_field_name, dt.astimezone(time_zone))
-        setattr(sender, field.attname, property(get_dtz_field, set_dtz_field))
 
 ## RED_FLAG: need to add a check at manage.py validation time that
 ##           time_zone value is a valid query keyword (if it is one)
-signals.class_prepared.connect(prep_localized_datetime)
+import signals as tzone_signals
+
+signals.class_prepared.connect(tzone_signals.prep_localized_datetime)
+signals.post_init.connect(tzone_signals.init_localized_datetime)
+
+#South migration support
+#from south.modelsinspector import add_introspection_rules
+#add_introspection_rules([], ["^timezones\.fields\.LocalizedDateTimeField"])
